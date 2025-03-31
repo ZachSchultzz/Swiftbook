@@ -4,7 +4,8 @@ import { AuthProvider, useAuth } from './AuthContext';
 import Signup from './components/Signup';
 import Login from './components/Login';
 import CreateUser from './components/CreateUser';
-import Chat from './components/Chat'; // Import the Chat component
+import Chat from './components/Chat';
+import ClientManagement from './components/ClientManagement'; // Import the ClientManagement component
 import './App.css';
 
 const AppContent: React.FC = () => {
@@ -70,11 +71,12 @@ const AppContent: React.FC = () => {
                 <p>Loading admin data...</p>
               )}
               <CreateUser />
+              <ClientManagement /> {/* Add the ClientManagement component */}
             </div>
           ) : (
             <p>No admin access</p>
           )}
-          <Chat /> {/* Add the Chat component */}
+          <Chat />
           <button onClick={logout}>Logout</button>
         </div>
       ) : (

@@ -3,14 +3,14 @@ const cors = require('cors');
 const { MongoClient, ObjectId } = require('mongodb');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const { Server } = require('socket.io'); // Import Socket.IO
-const http = require('http'); // Required for Socket.IO
+const { Server } = require('socket.io');
+const http = require('http');
 
 const app = express();
-const server = http.createServer(app); // Create an HTTP server for Socket.IO
+const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: 'http://localhost:3000', // Allow the frontend to connect
+    origin: 'http://localhost:3000',
     methods: ['GET', 'POST'],
   },
 });
@@ -55,17 +55,14 @@ const requireAdmin = (req, res, next) => {
   next();
 };
 
-// Socket.IO connection handling
 io.on('connection', (socket) => {
   console.log('A user connected:', socket.id);
 
-  // Join a room based on the businessId (sent by the client)
   socket.on('joinBusiness', (businessId) => {
     socket.join(businessId);
     console.log(`User ${socket.id} joined business room: ${businessId}`);
   });
 
-  // Handle sending messages
   socket.on('sendMessage', async ({ businessId, senderId, message }) => {
     try {
       const chatMessage = {
@@ -74,9 +71,7 @@ io.on('connection', (socket) => {
         message,
         timestamp: new Date(),
       };
-      // Save the message to the database
       await db.collection('messages').insertOne(chatMessage);
-      // Broadcast the message to all users in the business room
       io.to(businessId).emit('receiveMessage', chatMessage);
     } catch (err) {
       console.error('Error saving message:', err);
@@ -228,7 +223,6 @@ async function startServer() {
     }
   });
 
-  // New route to fetch chat messages for a business
   app.get('/api/messages/:businessId', authenticateToken, async (req, res) => {
     try {
       const { businessId } = req.params;
@@ -242,8 +236,86 @@ async function startServer() {
     }
   });
 
+  // Client Management Routes
+  // Create a new client (admin only)
+  app.post('/api/clients', authenticateToken, requireAdmin, async (req, res) => {
+    const { name, email, phone, notes } = req.body;
+    if (!name || !email) {
+      return res.status(400).json({ message: 'Name and email are required' });
+    }
+
+    try {
+      const existingClient = await db.collection('clients').findOne({ email, businessId: req.user.businessId });
+      if (existingClient) return res.status(400).json({ message: 'Client with this email already exists' });
+
+      const client = {
+        name,
+        email,
+        phone: phone || '',
+        notes: notes || '',
+        businessId: req.user.businessId,
+        createdAt: new Date(),
+      };
+      const result = await db.collection('clients').insertOne(client);
+      res.status(201).json({ message: 'Client created successfully', clientId: result.insertedId });
+    } catch (err) {
+      res.status(500).json({ message: 'Error creating client', error: err.message });
+    }
+  });
+
+  // Get all clients for a business
+  app.get('/api/clients', authenticateToken, async (req, res) => {
+    try {
+      const clients = await db.collection('clients').find({ businessId: req.user.businessId }).toArray();
+      res.json(clients);
+    } catch (err) {
+      res.status(500).json({ message: 'Error fetching clients', error: err.message });
+    }
+  });
+
+  // Update a client (admin only)
+  app.put('/api/clients/:clientId', authenticateToken, requireAdmin, async (req, res) => {
+    const { clientId } = req.params;
+    const { name, email, phone, notes } = req.body;
+
+    try {
+      const client = await db.collection('clients').findOne({ _id: new ObjectId(clientId), businessId: req.user.businessId });
+      if (!client) return res.status(404).json({ message: 'Client not found' });
+
+      const updatedClient = {
+        name: name || client.name,
+        email: email || client.email,
+        phone: phone || client.phone,
+        notes: notes || client.notes,
+        businessId: req.user.businessId,
+        updatedAt: new Date(),
+      };
+
+      await db.collection('clients').updateOne(
+        { _id: new ObjectId(clientId) },
+        { $set: updatedClient }
+      );
+      res.json({ message: 'Client updated successfully' });
+    } catch (err) {
+      res.status(500).json({ message: 'Error updating client', error: err.message });
+    }
+  });
+
+  // Delete a client (admin only)
+  app.delete('/api/clients/:clientId', authenticateToken, requireAdmin, async (req, res) => {
+    const { clientId } = req.params;
+
+    try {
+      const result = await db.collection('clients').deleteOne({ _id: new ObjectId(clientId), businessId: req.user.businessId });
+      if (result.deletedCount === 0) return res.status(404).json({ message: 'Client not found' });
+      res.json({ message: 'Client deleted successfully' });
+    } catch (err) {
+      res.status(500).json({ message: 'Error deleting client', error: err.message });
+    }
+  });
+
   const PORT = process.env.PORT || 3001;
-  server.listen(PORT, () => console.log(`Server running on port ${PORT}`)); // Use server.listen instead of app.listen
+  server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 }
 
 connectToMongo().then(() => {
