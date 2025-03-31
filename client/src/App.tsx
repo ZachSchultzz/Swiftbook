@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './AuthContext';
 import Signup from './components/Signup';
 import Login from './components/Login';
 import CreateUser from './components/CreateUser';
+import Chat from './components/Chat'; // Import the Chat component
 import './App.css';
 
 const AppContent: React.FC = () => {
@@ -13,7 +14,7 @@ const AppContent: React.FC = () => {
 
   useEffect(() => {
     console.log('Current role in AppContent:', role);
-    console.log('Is role admin?', role === 'admin'); // Debug: Log the condition
+    console.log('Is role admin?', role?.trim() === 'admin');
     if (token) {
       const fetchBusinessData = async () => {
         try {
@@ -27,7 +28,7 @@ const AppContent: React.FC = () => {
       };
       fetchBusinessData();
 
-      if (role === 'admin') {
+      if (role?.trim() === 'admin') {
         const fetchAdminData = async () => {
           try {
             const response = await axios.get('http://localhost:3001/api/admin-only', {
@@ -43,7 +44,7 @@ const AppContent: React.FC = () => {
     }
   }, [token, role]);
 
-  console.log('Rendering AppContent with role:', role); // Debug: Log before rendering
+  console.log('Rendering AppContent with role:', role);
   return (
     <div className="App">
       <h1>Welcome to SwiftBook</h1>
@@ -60,7 +61,7 @@ const AppContent: React.FC = () => {
           ) : (
             <p>Loading business data...</p>
           )}
-          {role === 'admin' ? (
+          {role?.trim() === 'admin' ? (
             <div>
               <h2>Admin Section</h2>
               {adminData ? (
@@ -73,6 +74,7 @@ const AppContent: React.FC = () => {
           ) : (
             <p>No admin access</p>
           )}
+          <Chat /> {/* Add the Chat component */}
           <button onClick={logout}>Logout</button>
         </div>
       ) : (

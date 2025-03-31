@@ -3,8 +3,18 @@ const cors = require('cors');
 const { MongoClient, ObjectId } = require('mongodb');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const { Server } = require('socket.io'); // Import Socket.IO
+const http = require('http'); // Required for Socket.IO
 
 const app = express();
+const server = http.createServer(app); // Create an HTTP server for Socket.IO
+const io = new Server(server, {
+  cors: {
+    origin: 'http://localhost:3000', // Allow the frontend to connect
+    methods: ['GET', 'POST'],
+  },
+});
+
 app.use(cors({ origin: 'http://localhost:3000' }));
 app.use(express.json());
 
@@ -44,6 +54,39 @@ const requireAdmin = (req, res, next) => {
   }
   next();
 };
+
+// Socket.IO connection handling
+io.on('connection', (socket) => {
+  console.log('A user connected:', socket.id);
+
+  // Join a room based on the businessId (sent by the client)
+  socket.on('joinBusiness', (businessId) => {
+    socket.join(businessId);
+    console.log(`User ${socket.id} joined business room: ${businessId}`);
+  });
+
+  // Handle sending messages
+  socket.on('sendMessage', async ({ businessId, senderId, message }) => {
+    try {
+      const chatMessage = {
+        businessId,
+        senderId,
+        message,
+        timestamp: new Date(),
+      };
+      // Save the message to the database
+      await db.collection('messages').insertOne(chatMessage);
+      // Broadcast the message to all users in the business room
+      io.to(businessId).emit('receiveMessage', chatMessage);
+    } catch (err) {
+      console.error('Error saving message:', err);
+    }
+  });
+
+  socket.on('disconnect', () => {
+    console.log('A user disconnected:', socket.id);
+  });
+});
 
 async function startServer() {
   app.get('/api', (req, res) => {
@@ -153,7 +196,6 @@ async function startServer() {
     res.json({ message: 'This is an admin-only route', user: req.user });
   });
 
-  // New route for admins to create users
   app.post('/api/create-user', authenticateToken, requireAdmin, async (req, res) => {
     const { name, email, password, role } = req.body;
     if (!name || !email || !password || !role) {
@@ -174,7 +216,7 @@ async function startServer() {
         name,
         email,
         password: hashedPassword,
-        businessId: req.user.businessId, // Use the admin's businessId
+        businessId: req.user.businessId,
         role,
         createdAt: new Date(),
       };
@@ -186,8 +228,22 @@ async function startServer() {
     }
   });
 
+  // New route to fetch chat messages for a business
+  app.get('/api/messages/:businessId', authenticateToken, async (req, res) => {
+    try {
+      const { businessId } = req.params;
+      if (businessId !== req.user.businessId) {
+        return res.status(403).json({ message: 'Unauthorized' });
+      }
+      const messages = await db.collection('messages').find({ businessId }).toArray();
+      res.json(messages);
+    } catch (err) {
+      res.status(500).json({ message: 'Error fetching messages', error: err.message });
+    }
+  });
+
   const PORT = process.env.PORT || 3001;
-  app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+  server.listen(PORT, () => console.log(`Server running on port ${PORT}`)); // Use server.listen instead of app.listen
 }
 
 connectToMongo().then(() => {
