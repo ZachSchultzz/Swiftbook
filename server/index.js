@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const { MongoClient, ObjectId } = require('mongodb'); // Ensure ObjectId is imported
+const { MongoClient, ObjectId } = require('mongodb');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 
@@ -17,6 +17,8 @@ async function connectToMongo() {
     await client.connect();
     db = client.db('swiftbook');
     console.log('Connected to MongoDB');
+    await db.command({ ping: 1 });
+    console.log('MongoDB ping successful');
   } catch (err) {
     console.error('MongoDB connection error:', err.message);
     console.error('Stack trace:', err.stack);
@@ -34,6 +36,13 @@ const authenticateToken = (req, res, next) => {
     req.user = user;
     next();
   });
+};
+
+const requireAdmin = (req, res, next) => {
+  if (req.user.role !== 'admin') {
+    return res.status(403).json({ message: 'Admin access required' });
+  }
+  next();
 };
 
 async function startServer() {
@@ -58,13 +67,17 @@ async function startServer() {
         console.error('Database not initialized');
         return res.status(500).json({ message: 'Database not initialized' });
       }
+      console.log('Database connection status:', db ? 'Connected' : 'Not connected');
+      console.log('Inserting business:', business);
       const result = await db.collection('businesses').insertOne(business);
       console.log('Business inserted successfully:', result.insertedId);
       res.status(201).json({ message: 'Business created', businessId: result.insertedId });
+      console.log('Response sent for /api/business');
     } catch (err) {
       console.error('Error in /api/business:', err.message);
       console.error('Stack trace:', err.stack);
       res.status(500).json({ message: 'Error creating business', error: err.message });
+      console.log('Error response sent for /api/business');
     }
   });
 
@@ -81,20 +94,28 @@ async function startServer() {
       const existingUser = await db.collection('users').findOne({ email });
       if (existingUser) return res.status(400).json({ message: 'User already exists' });
 
+      const businessIdStr = businessId.toString();
+      console.log('Business ID (string):', businessIdStr);
+      console.log('Querying users with businessId:', businessIdStr);
+      const businessUsers = await db.collection('users').find({ businessId: businessIdStr }).toArray();
+      console.log('Found users:', businessUsers);
+      const role = businessUsers.length === 0 ? 'admin' : 'member';
+      console.log('Assigned role:', role);
+
       const hashedPassword = await bcrypt.hash(password, 10);
 
       const user = {
         name,
         email,
         password: hashedPassword,
-        businessId,
-        role: 'member',
+        businessId: businessIdStr,
+        role,
         createdAt: new Date(),
       };
       const result = await db.collection('users').insertOne(user);
 
-      const token = jwt.sign({ id: result.insertedId, email, businessId }, 'your-secret-key', { expiresIn: '1h' });
-      res.status(201).json({ message: 'User created', token });
+      const token = jwt.sign({ id: result.insertedId, email, businessId: businessIdStr, role }, 'your-secret-key', { expiresIn: '1h' });
+      res.status(201).json({ message: 'User created', token, role });
     } catch (err) {
       res.status(500).json({ message: 'Error signing up', error: err.message });
     }
@@ -111,8 +132,8 @@ async function startServer() {
       const isMatch = await bcrypt.compare(password, user.password);
       if (!isMatch) return res.status(400).json({ message: 'Invalid credentials' });
 
-      const token = jwt.sign({ id: user._id, email: user.email, businessId: user.businessId }, 'your-secret-key', { expiresIn: '1h' });
-      res.json({ message: 'Login successful', token });
+      const token = jwt.sign({ id: user._id, email: user.email, businessId: user.businessId.toString(), role: user.role }, 'your-secret-key', { expiresIn: '1h' });
+      res.json({ message: 'Login successful', token, role: user.role });
     } catch (err) {
       res.status(500).json({ message: 'Error logging in', error: err.message });
     }
@@ -125,6 +146,43 @@ async function startServer() {
       res.json({ business });
     } catch (err) {
       res.status(500).json({ message: 'Error fetching business data', error: err.message });
+    }
+  });
+
+  app.get('/api/admin-only', authenticateToken, requireAdmin, (req, res) => {
+    res.json({ message: 'This is an admin-only route', user: req.user });
+  });
+
+  // New route for admins to create users
+  app.post('/api/create-user', authenticateToken, requireAdmin, async (req, res) => {
+    const { name, email, password, role } = req.body;
+    if (!name || !email || !password || !role) {
+      return res.status(400).json({ message: 'All fields (name, email, password, role) are required' });
+    }
+
+    if (!['admin', 'member'].includes(role)) {
+      return res.status(400).json({ message: 'Role must be either "admin" or "member"' });
+    }
+
+    try {
+      const existingUser = await db.collection('users').findOne({ email });
+      if (existingUser) return res.status(400).json({ message: 'User already exists' });
+
+      const hashedPassword = await bcrypt.hash(password, 10);
+
+      const user = {
+        name,
+        email,
+        password: hashedPassword,
+        businessId: req.user.businessId, // Use the admin's businessId
+        role,
+        createdAt: new Date(),
+      };
+      const result = await db.collection('users').insertOne(user);
+
+      res.status(201).json({ message: 'User created successfully', userId: result.insertedId });
+    } catch (err) {
+      res.status(500).json({ message: 'Error creating user', error: err.message });
     }
   });
 
