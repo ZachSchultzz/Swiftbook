@@ -7,6 +7,7 @@ import CreateUser from './components/CreateUser';
 import Chat from './components/Chat';
 import ClientManagement from './components/ClientManagement';
 import BusinessHierarchy from './components/BusinessHierarchy';
+import TimeCards from './components/TimeCards'; // Import the TimeCards component
 import './App.css';
 
 const AppContent: React.FC = () => {
@@ -29,7 +30,6 @@ const AppContent: React.FC = () => {
       };
       fetchBusinessData();
 
-      // Only fetch admin data if the user has the owner or admin role
       if (role && ['owner', 'admin'].includes(role)) {
         const fetchAdminData = async () => {
           try {
@@ -78,6 +78,7 @@ const AppContent: React.FC = () => {
             <p>No admin access</p>
           )}
           <BusinessHierarchy />
+          <TimeCards /> {/* Add the TimeCards component */}
           <Chat />
           <button onClick={logout}>Logout</button>
         </div>

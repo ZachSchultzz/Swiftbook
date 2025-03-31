@@ -1,55 +1,40 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { jwtDecode } from 'jwt-decode';
-
-interface DecodedToken {
-  id: string;
-  email: string;
-  businessId: string;
-  role: string;
-}
+import React, { createContext, useContext, useState, ReactNode } from 'react';
 
 interface AuthContextType {
   token: string | null;
   role: string | null;
-  login: (token: string) => void;
+  userId: string | null;
+  login: (token: string, role: string, userId: string) => void;
   logout: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
-  const [role, setRole] = useState<string | null>(null);
+  const [role, setRole] = useState<string | null>(localStorage.getItem('role'));
+  const [userId, setUserId] = useState<string | null>(localStorage.getItem('userId'));
 
-  useEffect(() => {
-    if (token) {
-      try {
-        const decoded: DecodedToken = jwtDecode(token);
-        console.log('Decoded token:', decoded); // Debug: Log the decoded token
-        setRole(decoded.role);
-        console.log('Set role to:', decoded.role); // Debug: Log the role
-      } catch (err) {
-        console.error('Error decoding token:', err);
-        setRole(null);
-      }
-    } else {
-      setRole(null);
-      console.log('No token, role set to null'); // Debug: Log when token is missing
-    }
-  }, [token]);
-
-  const login = (newToken: string) => {
+  const login = (newToken: string, newRole: string, newUserId: string) => {
     setToken(newToken);
+    setRole(newRole);
+    setUserId(newUserId);
     localStorage.setItem('token', newToken);
+    localStorage.setItem('role', newRole);
+    localStorage.setItem('userId', newUserId);
   };
 
   const logout = () => {
     setToken(null);
+    setRole(null);
+    setUserId(null);
     localStorage.removeItem('token');
+    localStorage.removeItem('role');
+    localStorage.removeItem('userId');
   };
 
   return (
-    <AuthContext.Provider value={{ token, role, login, logout }}>
+    <AuthContext.Provider value={{ token, role, userId, login, logout }}>
       {children}
     </AuthContext.Provider>
   );
@@ -57,6 +42,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
 export const useAuth = () => {
   const context = useContext(AuthContext);
-  if (!context) throw new Error('useAuth must be used within an AuthProvider');
+  if (!context) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
   return context;
 };

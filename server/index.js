@@ -324,6 +324,75 @@ async function startServer() {
     }
   });
 
+  // Time Card Routes
+  // Submit a time card (all roles can submit)
+  app.post('/api/timecards', authenticateToken, async (req, res) => {
+    const { date, hoursWorked, description } = req.body;
+    if (!date || !hoursWorked) {
+      return res.status(400).json({ message: 'Date and hours worked are required' });
+    }
+
+    try {
+      const timeCard = {
+        userId: req.user.id,
+        businessId: req.user.businessId,
+        date: new Date(date),
+        hoursWorked: parseFloat(hoursWorked),
+        description: description || '',
+        status: 'pending', // Can be 'pending', 'approved', or 'rejected'
+        createdAt: new Date(),
+      };
+      const result = await db.collection('timecards').insertOne(timeCard);
+      res.status(201).json({ message: 'Time card submitted successfully', timeCardId: result.insertedId });
+    } catch (err) {
+      res.status(500).json({ message: 'Error submitting time card', error: err.message });
+    }
+  });
+
+  // Get all time cards for the business (visible to managers, admins, owners; employees see only their own)
+  app.get('/api/timecards', authenticateToken, async (req, res) => {
+    try {
+      let timeCards;
+      if (['manager', 'admin', 'owner'].includes(req.user.role)) {
+        // Managers, admins, and owners can see all time cards in the business
+        timeCards = await db.collection('timecards')
+          .find({ businessId: req.user.businessId })
+          .toArray();
+      } else {
+        // Employees can only see their own time cards
+        timeCards = await db.collection('timecards')
+          .find({ userId: req.user.id, businessId: req.user.businessId })
+          .toArray();
+      }
+      res.json(timeCards);
+    } catch (err) {
+      res.status(500).json({ message: 'Error fetching time cards', error: err.message });
+    }
+  });
+
+  // Approve or reject a time card (managers, admins, owners only)
+  app.put('/api/timecards/:timeCardId', authenticateToken, requireRole(['manager', 'admin', 'owner']), async (req, res) => {
+    const { timeCardId } = req.params;
+    const { status } = req.body;
+
+    if (!['approved', 'rejected'].includes(status)) {
+      return res.status(400).json({ message: 'Status must be "approved" or "rejected"' });
+    }
+
+    try {
+      const timeCard = await db.collection('timecards').findOne({ _id: new ObjectId(timeCardId), businessId: req.user.businessId });
+      if (!timeCard) return res.status(404).json({ message: 'Time card not found' });
+
+      await db.collection('timecards').updateOne(
+        { _id: new ObjectId(timeCardId) },
+        { $set: { status, updatedAt: new Date() } }
+      );
+      res.json({ message: `Time card ${status} successfully` });
+    } catch (err) {
+      res.status(500).json({ message: 'Error updating time card', error: err.message });
+    }
+  });
+
   const PORT = process.env.PORT || 3001;
   server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
 }
