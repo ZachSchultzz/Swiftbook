@@ -48,9 +48,9 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
-const requireAdmin = (req, res, next) => {
-  if (req.user.role !== 'admin') {
-    return res.status(403).json({ message: 'Admin access required' });
+const requireRole = (roles) => (req, res, next) => {
+  if (!roles.includes(req.user.role)) {
+    return res.status(403).json({ message: `Access denied: ${roles.join(' or ')} role required` });
   }
   next();
 };
@@ -137,7 +137,7 @@ async function startServer() {
       console.log('Querying users with businessId:', businessIdStr);
       const businessUsers = await db.collection('users').find({ businessId: businessIdStr }).toArray();
       console.log('Found users:', businessUsers);
-      const role = businessUsers.length === 0 ? 'admin' : 'member';
+      const role = businessUsers.length === 0 ? 'owner' : 'employee';
       console.log('Assigned role:', role);
 
       const hashedPassword = await bcrypt.hash(password, 10);
@@ -187,18 +187,18 @@ async function startServer() {
     }
   });
 
-  app.get('/api/admin-only', authenticateToken, requireAdmin, (req, res) => {
+  app.get('/api/admin-only', authenticateToken, requireRole(['owner', 'admin']), (req, res) => {
     res.json({ message: 'This is an admin-only route', user: req.user });
   });
 
-  app.post('/api/create-user', authenticateToken, requireAdmin, async (req, res) => {
+  app.post('/api/create-user', authenticateToken, requireRole(['owner', 'admin']), async (req, res) => {
     const { name, email, password, role } = req.body;
     if (!name || !email || !password || !role) {
       return res.status(400).json({ message: 'All fields (name, email, password, role) are required' });
     }
 
-    if (!['admin', 'member'].includes(role)) {
-      return res.status(400).json({ message: 'Role must be either "admin" or "member"' });
+    if (!['owner', 'admin', 'manager', 'employee'].includes(role)) {
+      return res.status(400).json({ message: 'Role must be either "owner", "admin", "manager", or "employee"' });
     }
 
     try {
@@ -236,9 +236,7 @@ async function startServer() {
     }
   });
 
-  // Client Management Routes
-  // Create a new client (admin only)
-  app.post('/api/clients', authenticateToken, requireAdmin, async (req, res) => {
+  app.post('/api/clients', authenticateToken, requireRole(['owner', 'admin']), async (req, res) => {
     const { name, email, phone, notes } = req.body;
     if (!name || !email) {
       return res.status(400).json({ message: 'Name and email are required' });
@@ -263,7 +261,6 @@ async function startServer() {
     }
   });
 
-  // Get all clients for a business
   app.get('/api/clients', authenticateToken, async (req, res) => {
     try {
       const clients = await db.collection('clients').find({ businessId: req.user.businessId }).toArray();
@@ -273,8 +270,7 @@ async function startServer() {
     }
   });
 
-  // Update a client (admin only)
-  app.put('/api/clients/:clientId', authenticateToken, requireAdmin, async (req, res) => {
+  app.put('/api/clients/:clientId', authenticateToken, requireRole(['owner', 'admin']), async (req, res) => {
     const { clientId } = req.params;
     const { name, email, phone, notes } = req.body;
 
@@ -301,8 +297,7 @@ async function startServer() {
     }
   });
 
-  // Delete a client (admin only)
-  app.delete('/api/clients/:clientId', authenticateToken, requireAdmin, async (req, res) => {
+  app.delete('/api/clients/:clientId', authenticateToken, requireRole(['owner', 'admin']), async (req, res) => {
     const { clientId } = req.params;
 
     try {
@@ -311,6 +306,21 @@ async function startServer() {
       res.json({ message: 'Client deleted successfully' });
     } catch (err) {
       res.status(500).json({ message: 'Error deleting client', error: err.message });
+    }
+  });
+
+  app.get('/api/hierarchy', authenticateToken, async (req, res) => {
+    try {
+      console.log('Fetching hierarchy for businessId:', req.user.businessId);
+      const users = await db.collection('users')
+        .find({ businessId: req.user.businessId })
+        .sort({ role: 1 })
+        .toArray();
+      console.log('Found users:', users);
+      res.json(users);
+    } catch (err) {
+      console.error('Error in /api/hierarchy:', err.message);
+      res.status(500).json({ message: 'Error fetching hierarchy', error: err.message });
     }
   });
 

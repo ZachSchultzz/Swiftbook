@@ -5,7 +5,8 @@ import Signup from './components/Signup';
 import Login from './components/Login';
 import CreateUser from './components/CreateUser';
 import Chat from './components/Chat';
-import ClientManagement from './components/ClientManagement'; // Import the ClientManagement component
+import ClientManagement from './components/ClientManagement';
+import BusinessHierarchy from './components/BusinessHierarchy';
 import './App.css';
 
 const AppContent: React.FC = () => {
@@ -15,7 +16,6 @@ const AppContent: React.FC = () => {
 
   useEffect(() => {
     console.log('Current role in AppContent:', role);
-    console.log('Is role admin?', role?.trim() === 'admin');
     if (token) {
       const fetchBusinessData = async () => {
         try {
@@ -29,7 +29,8 @@ const AppContent: React.FC = () => {
       };
       fetchBusinessData();
 
-      if (role?.trim() === 'admin') {
+      // Only fetch admin data if the user has the owner or admin role
+      if (role && ['owner', 'admin'].includes(role)) {
         const fetchAdminData = async () => {
           try {
             const response = await axios.get('http://localhost:3001/api/admin-only', {
@@ -62,7 +63,7 @@ const AppContent: React.FC = () => {
           ) : (
             <p>Loading business data...</p>
           )}
-          {role?.trim() === 'admin' ? (
+          {role && ['owner', 'admin'].includes(role) ? (
             <div>
               <h2>Admin Section</h2>
               {adminData ? (
@@ -71,11 +72,12 @@ const AppContent: React.FC = () => {
                 <p>Loading admin data...</p>
               )}
               <CreateUser />
-              <ClientManagement /> {/* Add the ClientManagement component */}
+              <ClientManagement />
             </div>
           ) : (
             <p>No admin access</p>
           )}
+          <BusinessHierarchy />
           <Chat />
           <button onClick={logout}>Logout</button>
         </div>
