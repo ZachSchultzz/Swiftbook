@@ -39,10 +39,17 @@ async function connectToMongo() {
 const authenticateToken = (req, res, next) => {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
-  if (!token) return res.status(401).json({ message: 'Access denied' });
+  if (!token) {
+    console.log('No token provided in request');
+    return res.status(401).json({ message: 'Access denied' });
+  }
 
   jwt.verify(token, 'your-secret-key', (err, user) => {
-    if (err) return res.status(403).json({ message: 'Invalid token' });
+    if (err) {
+      console.log('Token verification failed:', err.message);
+      return res.status(403).json({ message: 'Invalid token' });
+    }
+    console.log('Token verified, user:', user);
     req.user = user;
     next();
   });
@@ -50,6 +57,7 @@ const authenticateToken = (req, res, next) => {
 
 const requireRole = (roles) => (req, res, next) => {
   if (!roles.includes(req.user.role)) {
+    console.log(`Access denied for user with role ${req.user.role}, required roles: ${roles}`);
     return res.status(403).json({ message: `Access denied: ${roles.join(' or ')} role required` });
   }
   next();
@@ -122,15 +130,22 @@ async function startServer() {
   app.post('/api/signup', async (req, res) => {
     const { name, email, password, businessId } = req.body;
     if (!name || !email || !password || !businessId) {
+      console.log('Missing required fields for signup:', { name, email, password, businessId });
       return res.status(400).json({ message: 'All fields are required' });
     }
 
     try {
       const business = await db.collection('businesses').findOne({ _id: new ObjectId(businessId) });
-      if (!business) return res.status(400).json({ message: 'Business not found' });
+      if (!business) {
+        console.log('Business not found for businessId:', businessId);
+        return res.status(400).json({ message: 'Business not found' });
+      }
 
       const existingUser = await db.collection('users').findOne({ email });
-      if (existingUser) return res.status(400).json({ message: 'User already exists' });
+      if (existingUser) {
+        console.log('User already exists with email:', email);
+        return res.status(400).json({ message: 'User already exists' });
+      }
 
       const businessIdStr = businessId.toString();
       console.log('Business ID (string):', businessIdStr);
@@ -148,41 +163,62 @@ async function startServer() {
         password: hashedPassword,
         businessId: businessIdStr,
         role,
+        phone: '', // Add phone field
+        preferences: { theme: 'light', notifications: true }, // Add preferences field
         createdAt: new Date(),
       };
       const result = await db.collection('users').insertOne(user);
+      console.log('User inserted:', user);
 
       const token = jwt.sign({ id: result.insertedId, email, businessId: businessIdStr, role }, 'your-secret-key', { expiresIn: '1h' });
+      console.log('Generated token for signup:', token);
       res.status(201).json({ message: 'User created', token, role });
     } catch (err) {
+      console.error('Error signing up:', err.message);
       res.status(500).json({ message: 'Error signing up', error: err.message });
     }
   });
 
   app.post('/api/login', async (req, res) => {
     const { email, password } = req.body;
-    if (!email || !password) return res.status(400).json({ message: 'Email and password are required' });
+    if (!email || !password) {
+      console.log('Missing email or password for login:', { email, password });
+      return res.status(400).json({ message: 'Email and password are required' });
+    }
 
     try {
       const user = await db.collection('users').findOne({ email });
-      if (!user) return res.status(400).json({ message: 'User not found' });
+      if (!user) {
+        console.log('User not found for email:', email);
+        return res.status(400).json({ message: 'User not found' });
+      }
 
       const isMatch = await bcrypt.compare(password, user.password);
-      if (!isMatch) return res.status(400).json({ message: 'Invalid credentials' });
+      if (!isMatch) {
+        console.log('Invalid credentials for email:', email);
+        return res.status(400).json({ message: 'Invalid credentials' });
+      }
 
       const token = jwt.sign({ id: user._id, email: user.email, businessId: user.businessId.toString(), role: user.role }, 'your-secret-key', { expiresIn: '1h' });
+      console.log('Generated token for login:', token);
       res.json({ message: 'Login successful', token, role: user.role });
     } catch (err) {
+      console.error('Error logging in:', err.message);
       res.status(500).json({ message: 'Error logging in', error: err.message });
     }
   });
 
   app.get('/api/business-data', authenticateToken, async (req, res) => {
     try {
+      console.log('Fetching business data for businessId:', req.user.businessId);
       const business = await db.collection('businesses').findOne({ _id: new ObjectId(req.user.businessId) });
-      if (!business) return res.status(404).json({ message: 'Business not found' });
+      if (!business) {
+        console.log('Business not found for businessId:', req.user.businessId);
+        return res.status(404).json({ message: 'Business not found' });
+      }
       res.json({ business });
     } catch (err) {
+      console.error('Error fetching business data:', err.message);
       res.status(500).json({ message: 'Error fetching business data', error: err.message });
     }
   });
@@ -194,16 +230,21 @@ async function startServer() {
   app.post('/api/create-user', authenticateToken, requireRole(['owner', 'admin']), async (req, res) => {
     const { name, email, password, role } = req.body;
     if (!name || !email || !password || !role) {
+      console.log('Missing required fields for create-user:', { name, email, password, role });
       return res.status(400).json({ message: 'All fields (name, email, password, role) are required' });
     }
 
     if (!['owner', 'admin', 'manager', 'employee'].includes(role)) {
+      console.log('Invalid role for create-user:', role);
       return res.status(400).json({ message: 'Role must be either "owner", "admin", "manager", or "employee"' });
     }
 
     try {
       const existingUser = await db.collection('users').findOne({ email });
-      if (existingUser) return res.status(400).json({ message: 'User already exists' });
+      if (existingUser) {
+        console.log('User already exists with email:', email);
+        return res.status(400).json({ message: 'User already exists' });
+      }
 
       const hashedPassword = await bcrypt.hash(password, 10);
 
@@ -213,12 +254,16 @@ async function startServer() {
         password: hashedPassword,
         businessId: req.user.businessId,
         role,
+        phone: '', // Add phone field
+        preferences: { theme: 'light', notifications: true }, // Add preferences field
         createdAt: new Date(),
       };
       const result = await db.collection('users').insertOne(user);
+      console.log('Created user:', user);
 
       res.status(201).json({ message: 'User created successfully', userId: result.insertedId });
     } catch (err) {
+      console.error('Error creating user:', err.message);
       res.status(500).json({ message: 'Error creating user', error: err.message });
     }
   });
@@ -227,11 +272,13 @@ async function startServer() {
     try {
       const { businessId } = req.params;
       if (businessId !== req.user.businessId) {
+        console.log('Unauthorized access to messages for businessId:', businessId);
         return res.status(403).json({ message: 'Unauthorized' });
       }
       const messages = await db.collection('messages').find({ businessId }).toArray();
       res.json(messages);
     } catch (err) {
+      console.error('Error fetching messages:', err.message);
       res.status(500).json({ message: 'Error fetching messages', error: err.message });
     }
   });
@@ -239,12 +286,16 @@ async function startServer() {
   app.post('/api/clients', authenticateToken, requireRole(['owner', 'admin']), async (req, res) => {
     const { name, email, phone, notes } = req.body;
     if (!name || !email) {
+      console.log('Missing required fields for create-client:', { name, email, phone, notes });
       return res.status(400).json({ message: 'Name and email are required' });
     }
 
     try {
       const existingClient = await db.collection('clients').findOne({ email, businessId: req.user.businessId });
-      if (existingClient) return res.status(400).json({ message: 'Client with this email already exists' });
+      if (existingClient) {
+        console.log('Client already exists with email:', email);
+        return res.status(400).json({ message: 'Client with this email already exists' });
+      }
 
       const client = {
         name,
@@ -255,8 +306,10 @@ async function startServer() {
         createdAt: new Date(),
       };
       const result = await db.collection('clients').insertOne(client);
+      console.log('Created client:', client);
       res.status(201).json({ message: 'Client created successfully', clientId: result.insertedId });
     } catch (err) {
+      console.error('Error creating client:', err.message);
       res.status(500).json({ message: 'Error creating client', error: err.message });
     }
   });
@@ -266,6 +319,7 @@ async function startServer() {
       const clients = await db.collection('clients').find({ businessId: req.user.businessId }).toArray();
       res.json(clients);
     } catch (err) {
+      console.error('Error fetching clients:', err.message);
       res.status(500).json({ message: 'Error fetching clients', error: err.message });
     }
   });
@@ -276,7 +330,10 @@ async function startServer() {
 
     try {
       const client = await db.collection('clients').findOne({ _id: new ObjectId(clientId), businessId: req.user.businessId });
-      if (!client) return res.status(404).json({ message: 'Client not found' });
+      if (!client) {
+        console.log('Client not found for clientId:', clientId);
+        return res.status(404).json({ message: 'Client not found' });
+      }
 
       const updatedClient = {
         name: name || client.name,
@@ -291,8 +348,10 @@ async function startServer() {
         { _id: new ObjectId(clientId) },
         { $set: updatedClient }
       );
+      console.log('Updated client:', updatedClient);
       res.json({ message: 'Client updated successfully' });
     } catch (err) {
+      console.error('Error updating client:', err.message);
       res.status(500).json({ message: 'Error updating client', error: err.message });
     }
   });
@@ -302,9 +361,14 @@ async function startServer() {
 
     try {
       const result = await db.collection('clients').deleteOne({ _id: new ObjectId(clientId), businessId: req.user.businessId });
-      if (result.deletedCount === 0) return res.status(404).json({ message: 'Client not found' });
+      if (result.deletedCount === 0) {
+        console.log('Client not found for clientId:', clientId);
+        return res.status(404).json({ message: 'Client not found' });
+      }
+      console.log('Deleted client with clientId:', clientId);
       res.json({ message: 'Client deleted successfully' });
     } catch (err) {
+      console.error('Error deleting client:', err.message);
       res.status(500).json({ message: 'Error deleting client', error: err.message });
     }
   });
@@ -325,10 +389,10 @@ async function startServer() {
   });
 
   // Time Card Routes
-  // Submit a time card (all roles can submit)
   app.post('/api/timecards', authenticateToken, async (req, res) => {
     const { date, hoursWorked, description } = req.body;
     if (!date || !hoursWorked) {
+      console.log('Missing required fields for time card:', { date, hoursWorked, description });
       return res.status(400).json({ message: 'Date and hours worked are required' });
     }
 
@@ -339,57 +403,115 @@ async function startServer() {
         date: new Date(date),
         hoursWorked: parseFloat(hoursWorked),
         description: description || '',
-        status: 'pending', // Can be 'pending', 'approved', or 'rejected'
+        status: 'pending',
         createdAt: new Date(),
       };
       const result = await db.collection('timecards').insertOne(timeCard);
+      console.log('Submitted time card:', timeCard);
       res.status(201).json({ message: 'Time card submitted successfully', timeCardId: result.insertedId });
     } catch (err) {
+      console.error('Error submitting time card:', err.message);
       res.status(500).json({ message: 'Error submitting time card', error: err.message });
     }
   });
 
-  // Get all time cards for the business (visible to managers, admins, owners; employees see only their own)
   app.get('/api/timecards', authenticateToken, async (req, res) => {
     try {
+      console.log('Fetching time cards for user:', req.user);
       let timeCards;
       if (['manager', 'admin', 'owner'].includes(req.user.role)) {
-        // Managers, admins, and owners can see all time cards in the business
         timeCards = await db.collection('timecards')
           .find({ businessId: req.user.businessId })
           .toArray();
       } else {
-        // Employees can only see their own time cards
         timeCards = await db.collection('timecards')
           .find({ userId: req.user.id, businessId: req.user.businessId })
           .toArray();
       }
+      console.log('Found time cards:', timeCards);
       res.json(timeCards);
     } catch (err) {
+      console.error('Error fetching time cards:', err.message);
       res.status(500).json({ message: 'Error fetching time cards', error: err.message });
     }
   });
 
-  // Approve or reject a time card (managers, admins, owners only)
   app.put('/api/timecards/:timeCardId', authenticateToken, requireRole(['manager', 'admin', 'owner']), async (req, res) => {
     const { timeCardId } = req.params;
     const { status } = req.body;
 
     if (!['approved', 'rejected'].includes(status)) {
+      console.log('Invalid status for time card update:', status);
       return res.status(400).json({ message: 'Status must be "approved" or "rejected"' });
     }
 
     try {
       const timeCard = await db.collection('timecards').findOne({ _id: new ObjectId(timeCardId), businessId: req.user.businessId });
-      if (!timeCard) return res.status(404).json({ message: 'Time card not found' });
+      if (!timeCard) {
+        console.log('Time card not found for timeCardId:', timeCardId);
+        return res.status(404).json({ message: 'Time card not found' });
+      }
 
       await db.collection('timecards').updateOne(
         { _id: new ObjectId(timeCardId) },
         { $set: { status, updatedAt: new Date() } }
       );
+      console.log(`Updated time card ${timeCardId} to status: ${status}`);
       res.json({ message: `Time card ${status} successfully` });
     } catch (err) {
+      console.error('Error updating time card:', err.message);
       res.status(500).json({ message: 'Error updating time card', error: err.message });
+    }
+  });
+
+  // Profile Routes
+  app.get('/api/profile', authenticateToken, async (req, res) => {
+    try {
+      const user = await db.collection('users').findOne({ _id: new ObjectId(req.user.id) });
+      if (!user) {
+        console.log('User not found for id:', req.user.id);
+        return res.status(404).json({ message: 'User not found' });
+      }
+      res.json({
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        preferences: user.preferences,
+        role: user.role,
+        businessId: user.businessId,
+      });
+    } catch (err) {
+      console.error('Error fetching profile:', err.message);
+      res.status(500).json({ message: 'Error fetching profile', error: err.message });
+    }
+  });
+
+  app.put('/api/profile', authenticateToken, async (req, res) => {
+    const { name, phone, preferences } = req.body;
+
+    try {
+      const user = await db.collection('users').findOne({ _id: new ObjectId(req.user.id) });
+      if (!user) {
+        console.log('User not found for id:', req.user.id);
+        return res.status(404).json({ message: 'User not found' });
+      }
+
+      const updatedProfile = {
+        name: name || user.name,
+        phone: phone || user.phone,
+        preferences: preferences || user.preferences,
+        updatedAt: new Date(),
+      };
+
+      await db.collection('users').updateOne(
+        { _id: new ObjectId(req.user.id) },
+        { $set: updatedProfile }
+      );
+      console.log('Updated profile for user:', req.user.id, updatedProfile);
+      res.json({ message: 'Profile updated successfully', profile: updatedProfile });
+    } catch (err) {
+      console.error('Error updating profile:', err.message);
+      res.status(500).json({ message: 'Error updating profile', error: err.message });
     }
   });
 
