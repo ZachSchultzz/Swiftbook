@@ -5,6 +5,8 @@
   },
   "devDependencies": {
     "@types/babel__core": "^7.20.5",
-    "@types/react-router-dom": "^5.3.3"
+    "@types/react-router-dom": "^5.3.3",
+    "@types/socket.io-client": "^3.0.0",
+    "typescript": "^5.8.2"
   }
 }
