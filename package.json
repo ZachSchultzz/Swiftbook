@@ -1,0 +1,10 @@
+{
+  "dependencies": {
+    "react-router-dom": "^7.4.1",
+    "socket.io-client": "^4.8.1"
+  },
+  "devDependencies": {
+    "@types/babel__core": "^7.20.5",
+    "@types/react-router-dom": "^5.3.3"
+  }
+}

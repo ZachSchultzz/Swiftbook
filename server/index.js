@@ -71,16 +71,38 @@ io.on('connection', (socket) => {
     console.log(`User ${socket.id} joined business room: ${businessId}`);
   });
 
-  socket.on('sendMessage', async ({ businessId, senderId, message }) => {
+  socket.on('joinDM', ({ senderId, recipientId }) => {
+    const room = [senderId, recipientId].sort().join('-');
+    socket.join(room);
+    console.log(`User ${socket.id} joined DM room: ${room}`);
+  });
+
+  socket.on('joinGroup', (groupId) => {
+    socket.join(groupId);
+    console.log(`User ${socket.id} joined group room: ${groupId}`);
+  });
+
+  socket.on('sendMessage', async ({ type, businessId, senderId, recipientId, groupId, message }) => {
     try {
       const chatMessage = {
+        type, // 'business', 'dm', or 'group'
         businessId,
         senderId,
+        recipientId: type === 'dm' ? recipientId : undefined,
+        groupId: type === 'group' ? groupId : undefined,
         message,
         timestamp: new Date(),
       };
       await db.collection('messages').insertOne(chatMessage);
-      io.to(businessId).emit('receiveMessage', chatMessage);
+
+      if (type === 'business') {
+        io.to(businessId).emit('receiveMessage', chatMessage);
+      } else if (type === 'dm') {
+        const room = [senderId, recipientId].sort().join('-');
+        io.to(room).emit('receiveMessage', chatMessage);
+      } else if (type === 'group') {
+        io.to(groupId).emit('receiveMessage', chatMessage);
+      }
     } catch (err) {
       console.error('Error saving message:', err);
     }
@@ -163,8 +185,8 @@ async function startServer() {
         password: hashedPassword,
         businessId: businessIdStr,
         role,
-        phone: '', // Add phone field
-        preferences: { theme: 'light', notifications: true }, // Add preferences field
+        phone: '',
+        preferences: { theme: 'light', notifications: true },
         createdAt: new Date(),
       };
       const result = await db.collection('users').insertOne(user);
@@ -254,8 +276,8 @@ async function startServer() {
         password: hashedPassword,
         businessId: req.user.businessId,
         role,
-        phone: '', // Add phone field
-        preferences: { theme: 'light', notifications: true }, // Add preferences field
+        phone: '',
+        preferences: { theme: 'light', notifications: true },
         createdAt: new Date(),
       };
       const result = await db.collection('users').insertOne(user);
@@ -275,7 +297,7 @@ async function startServer() {
         console.log('Unauthorized access to messages for businessId:', businessId);
         return res.status(403).json({ message: 'Unauthorized' });
       }
-      const messages = await db.collection('messages').find({ businessId }).toArray();
+      const messages = await db.collection('messages').find({ type: 'business', businessId }).toArray();
       res.json(messages);
     } catch (err) {
       console.error('Error fetching messages:', err.message);
@@ -512,6 +534,123 @@ async function startServer() {
     } catch (err) {
       console.error('Error updating profile:', err.message);
       res.status(500).json({ message: 'Error updating profile', error: err.message });
+    }
+  });
+
+  // Chat Routes
+  app.get('/api/users/:businessId', authenticateToken, async (req, res) => {
+    try {
+      const { businessId } = req.params;
+      if (businessId !== req.user.businessId) {
+        console.log('Unauthorized access to users for businessId:', businessId);
+        return res.status(403).json({ message: 'Unauthorized' });
+      }
+      const users = await db.collection('users')
+        .find({ businessId })
+        .project({ _id: 1, name: 1, email: 1 })
+        .toArray();
+      res.json(users);
+    } catch (err) {
+      console.error('Error fetching users:', err.message);
+      res.status(500).json({ message: 'Error fetching users', error: err.message });
+    }
+  });
+
+  app.post('/api/groups', authenticateToken, async (req, res) => {
+    const { name, memberIds } = req.body;
+    if (!name || !memberIds || !Array.isArray(memberIds)) {
+      console.log('Missing required fields for group creation:', { name, memberIds });
+      return res.status(400).json({ message: 'Group name and member IDs are required' });
+    }
+
+    try {
+      const members = await db.collection('users')
+        .find({ _id: { $in: memberIds.map(id => new ObjectId(id)) }, businessId: req.user.businessId })
+        .toArray();
+      if (members.length !== memberIds.length) {
+        console.log('Some members not found or not in the same business');
+        return res.status(400).json({ message: 'Some members not found or not in the same business' });
+      }
+
+      const group = {
+        name,
+        businessId: req.user.businessId,
+        memberIds: memberIds,
+        createdBy: req.user.id,
+        createdAt: new Date(),
+      };
+      const result = await db.collection('groups').insertOne(group);
+      console.log('Created group:', group);
+      res.status(201).json({ message: 'Group created successfully', groupId: result.insertedId });
+    } catch (err) {
+      console.error('Error creating group:', err.message);
+      res.status(500).json({ message: 'Error creating group', error: err.message });
+    }
+  });
+
+  app.get('/api/groups/:businessId', authenticateToken, async (req, res) => {
+    try {
+      const { businessId } = req.params;
+      if (businessId !== req.user.businessId) {
+        console.log('Unauthorized access to groups for businessId:', businessId);
+        return res.status(403).json({ message: 'Unauthorized' });
+      }
+      const groups = await db.collection('groups')
+        .find({ businessId, memberIds: req.user.id })
+        .toArray();
+      res.json(groups);
+    } catch (err) {
+      console.error('Error fetching groups:', err.message);
+      res.status(500).json({ message: 'Error fetching groups', error: err.message });
+    }
+  });
+
+  app.get('/api/dm/:recipientId', authenticateToken, async (req, res) => {
+    try {
+      const { recipientId } = req.params;
+      const recipient = await db.collection('users').findOne({ _id: new ObjectId(recipientId), businessId: req.user.businessId });
+      if (!recipient) {
+        console.log('Recipient not found or not in the same business:', recipientId);
+        return res.status(404).json({ message: 'Recipient not found or not in the same business' });
+      }
+
+      const messages = await db.collection('messages')
+        .find({
+          type: 'dm',
+          businessId: req.user.businessId,
+          $or: [
+            { senderId: req.user.id, recipientId },
+            { senderId: recipientId, recipientId: req.user.id },
+          ],
+        })
+        .toArray();
+      res.json(messages);
+    } catch (err) {
+      console.error('Error fetching DM messages:', err.message);
+      res.status(500).json({ message: 'Error fetching DM messages', error: err.message });
+    }
+  });
+
+  app.get('/api/group-messages/:groupId', authenticateToken, async (req, res) => {
+    try {
+      const { groupId } = req.params;
+      const group = await db.collection('groups').findOne({ _id: new ObjectId(groupId), businessId: req.user.businessId });
+      if (!group) {
+        console.log('Group not found for groupId:', groupId);
+        return res.status(404).json({ message: 'Group not found' });
+      }
+      if (!group.memberIds.includes(req.user.id)) {
+        console.log('User not a member of group:', groupId);
+        return res.status(403).json({ message: 'Unauthorized' });
+      }
+
+      const messages = await db.collection('messages')
+        .find({ type: 'group', groupId })
+        .toArray();
+      res.json(messages);
+    } catch (err) {
+      console.error('Error fetching group messages:', err.message);
+      res.status(500).json({ message: 'Error fetching group messages', error: err.message });
     }
   });
 

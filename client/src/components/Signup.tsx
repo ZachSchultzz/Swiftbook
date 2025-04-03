@@ -21,10 +21,12 @@ const Signup: React.FC = () => {
       });
       const { token, role } = response.data;
       const userId = JSON.parse(atob(token.split('.')[1])).id; // Extract userId from JWT token
+      console.log('Signup response:', { token, role, userId }); // Debug log
       login(token, role, userId); // Pass all three arguments: token, role, userId
       setMessage('Signup successful');
     } catch (err: any) {
       setMessage(err.response?.data?.message || 'Error signing up');
+      console.error('Signup error:', err.response?.data || err.message); // Debug log
     }
   };
 

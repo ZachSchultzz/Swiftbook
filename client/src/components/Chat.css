@@ -1,0 +1,143 @@
+.chat-container {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 20px;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    background-color: #f9f9f9;
+  }
+  
+  .chat-tabs {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+  }
+  
+  .chat-tabs button {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 5px;
+    background-color: #e0e0e0;
+    cursor: pointer;
+    transition: background-color 0.3s;
+  }
+  
+  .chat-tabs button.active {
+    background-color: #007bff;
+    color: white;
+  }
+  
+  .chat-tabs button:hover {
+    background-color: #d0d0d0;
+  }
+  
+  .dm-selector, .group-chat-section {
+    margin-bottom: 20px;
+  }
+  
+  .dm-selector ul, .group-chat-section ul {
+    list-style: none;
+    padding: 0;
+  }
+  
+  .dm-selector li, .group-chat-section li {
+    padding: 10px;
+    border-bottom: 1px solid #eee;
+    cursor: pointer;
+  }
+  
+  .dm-selector li:hover, .group-chat-section li:hover {
+    background-color: #f0f0f0;
+  }
+  
+  .dm-selector li.selected, .group-chat-section li.selected {
+    background-color: #007bff;
+    color: white;
+  }
+  
+  .create-group {
+    margin-top: 20px;
+    padding: 10px;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+  }
+  
+  .create-group form {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  
+  .create-group ul {
+    max-height: 200px;
+    overflow-y: auto;
+  }
+  
+  .chat-box {
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    padding: 10px;
+    background-color: white;
+  }
+  
+  .messages {
+    max-height: 300px;
+    overflow-y: auto;
+    margin-bottom: 20px;
+    padding: 10px;
+    border-bottom: 1px solid #eee;
+  }
+  
+  .message {
+    margin-bottom: 10px;
+    padding: 5px 10px;
+    border-radius: 5px;
+    max-width: 70%;
+  }
+  
+  .message.sent {
+    background-color: #007bff;
+    color: white;
+    margin-left: auto;
+  }
+  
+  .message.received {
+    background-color: #e0e0e0;
+    margin-right: auto;
+  }
+  
+  .message .sender {
+    font-weight: bold;
+    margin-right: 5px;
+  }
+  
+  .message .timestamp {
+    font-size: 0.8em;
+    color: #666;
+    margin-left: 10px;
+  }
+  
+  .message-form {
+    display: flex;
+    gap: 10px;
+  }
+  
+  .message-form input {
+    flex: 1;
+    padding: 10px;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+  }
+  
+  .message-form button {
+    padding: 10px 20px;
+    border: none;
+    border-radius: 5px;
+    background-color: #007bff;
+    color: white;
+    cursor: pointer;
+  }
+  
+  .message-form button:hover {
+    background-color: #0056b3;
+  }

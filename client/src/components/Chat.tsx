@@ -1,94 +1,148 @@
-import React, { useState, useEffect } from 'react';
-import io from 'socket.io-client'; // Use default import for io
-import { Socket } from 'socket.io-client'; // Import Socket type
+import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { useAuth } from '../AuthContext';
+import './Chat.css';
+import io from 'socket.io-client';
 
-// Define the type for the message object
-interface ChatMessage {
+// Define the event types for Socket.IO
+interface ServerToClientEvents {
+  connect: () => void;
+  receiveMessage: (message: Message) => void;
+}
+
+interface ClientToServerEvents {
+  joinBusiness: (businessId: string) => void;
+  joinDM: (data: { senderId: string; recipientId: string }) => void;
+  joinGroup: (groupId: string) => void;
+  sendMessage: (message: Message) => void;
+}
+
+export interface Message {
+  _id?: string;
+  type: 'business' | 'dm' | 'group';
   businessId: string;
   senderId: string;
+  recipientId?: string;
+  groupId?: string;
   message: string;
   timestamp: string;
 }
 
-// Create the socket instance (let TypeScript infer the type)
-const socket = io('http://localhost:3001', { autoConnect: false });
+export interface User {
+  _id: string;
+  name: string;
+  email: string;
+}
+
+export interface Group {
+  _id: string;
+  name: string;
+  memberIds: string[];
+  createdBy: string;
+  createdAt: string;
+}
 
 const Chat: React.FC = () => {
-  const { token, role } = useAuth();
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [newMessage, setNewMessage] = useState('');
+  const { token, userId, role } = useAuth();
+  const [socket, setSocket] = useState<ReturnType<typeof io> | null>(null);
   const [businessId, setBusinessId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [newMessage, setNewMessage] = useState('');
+  const [users, setUsers] = useState<User[]>([]);
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [chatType, setChatType] = useState<'business' | 'dm' | 'group'>('business');
+  const [selectedRecipient, setSelectedRecipient] = useState<User | null>(null);
+  const [selectedGroup, setSelectedGroup] = useState<Group | null>(null);
+  const [newGroupName, setNewGroupName] = useState('');
+  const [newGroupMembers, setNewGroupMembers] = useState<string[]>([]);
+  const [userNames, setUserNames] = useState<{ [key: string]: string }>({});
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
+  // Fetch the business ID once token is available.
   useEffect(() => {
     if (token) {
-      // Decode the token to get the businessId
-      const decodedToken = JSON.parse(atob(token.split('.')[1]));
-      setBusinessId(decodedToken.businessId);
-
-      // Connect to Socket.IO
-      socket.connect();
-      socket.emit('joinBusiness', decodedToken.businessId);
-
-      // Fetch existing messages
-      const fetchMessages = async () => {
+      const fetchBusinessId = async () => {
         try {
-          const response = await axios.get(`http://localhost:3001/api/messages/${decodedToken.businessId}`, {
+          const response = await axios.get('http://localhost:3001/api/business-data', {
             headers: { Authorization: `Bearer ${token}` },
           });
-          setMessages(response.data);
-        } catch (err) {
-          console.error('Error fetching messages:', err);
+          setBusinessId(response.data.business._id);
+        } catch (err: any) {
+          console.error(
+            'Error fetching business data:',
+            err.response?.data?.message || err.message
+          );
         }
       };
-      fetchMessages();
-
-      // Listen for new messages
-      socket.on('receiveMessage', (message: ChatMessage) => {
-        setMessages((prevMessages) => [...prevMessages, message]);
-      });
-
-      // Cleanup on unmount
-      return () => {
-        socket.disconnect();
-      };
+      fetchBusinessId();
     }
   }, [token]);
 
-  const handleSendMessage = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (newMessage.trim() && businessId && token) {
-      const decodedToken = JSON.parse(atob(token.split('.')[1]));
-      socket.emit('sendMessage', {
-        businessId,
-        senderId: decodedToken.id,
-        message: newMessage,
-      });
-      setNewMessage('');
-    }
-  };
+  // Initialize the Socket.IO connection when businessId is available.
+  useEffect(() => {
+    if (businessId) {
+      const newSocket = io('http://localhost:3001');
+      setSocket(newSocket);
 
+      newSocket.on('connect', () => {
+        console.log('Connected to Socket.IO server');
+        newSocket.emit('joinBusiness', businessId);
+      });
+
+      newSocket.on('receiveMessage', (message: Message) => {
+        setMessages((prevMessages) => [...prevMessages, message]);
+      });
+
+      return () => {
+        newSocket.disconnect();
+      };
+    }
+  }, [businessId]);
+
+  // Simple placeholder UI
   return (
-    <div>
-      <h3>Chat</h3>
-      <div style={{ height: '300px', overflowY: 'scroll', border: '1px solid #ccc', padding: '10px' }}>
-        {messages.map((msg, index) => (
-          <div key={index}>
-            <strong>{msg.senderId}:</strong> {msg.message} <em>({new Date(msg.timestamp).toLocaleTimeString()})</em>
+    <div className="chat-container">
+      <h2>Chat Component</h2>
+      {businessId ? (
+        <>
+          <div className="messages">
+            {messages.map((msg, idx) => (
+              <div key={idx}>
+                <strong>{msg.senderId}</strong>: {msg.message}
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
-      <form onSubmit={handleSendMessage}>
-        <input
-          type="text"
-          value={newMessage}
-          onChange={(e) => setNewMessage(e.target.value)}
-          placeholder="Type a message..."
-          style={{ width: '80%', margin: '10px 0' }}
-        />
-        <button type="submit">Send</button>
-      </form>
+          <div className="message-input">
+            <input
+              type="text"
+              value={newMessage}
+              onChange={(e) => setNewMessage(e.target.value)}
+              placeholder="Type your message..."
+            />
+            <button
+              onClick={() => {
+                if (socket && newMessage.trim() && userId) {
+                  const msg: Message = {
+                    businessId: businessId!, // assert non-null if needed
+                    senderId: userId!, // non-null assertion here
+                    message: newMessage,
+                    type: chatType,
+                    timestamp: new Date().toISOString(),
+                  };
+                  socket.emit('sendMessage', msg);
+                  setMessages((prev) => [...prev, msg]);
+                  setNewMessage('');
+                }
+              }}
+            >
+              Send
+            </button>
+          </div>
+        </>
+      ) : (
+        <p>Loading business data...</p>
+      )}
+      <div ref={messagesEndRef} />
     </div>
   );
 };
